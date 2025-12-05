@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Cloud, Sun, CloudRain, CloudSnow, Wind, Thermometer, Droplets, Eye } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
 const Weather = () => {
   const [city, setCity] = useState('');
+  const [lat, setLat] = useState(null);
+  const [lon, setLon] = useState(null);
   const [weather, setWeather] = useState(null);
   const [forecast, setForecast] = useState(null);
   const [loading, setLoading] = useState(false);
   const [units, setUnits] = useState('metric');
+  const audioUrlRef = useRef(null);
 
   const getWeatherIcon = (iconCode, description) => {
     const iconMap = {
@@ -35,23 +38,39 @@ const Weather = () => {
     return iconMap[iconCode] || Cloud;
   };
 
-  const getWeatherData = async () => {
-    if (!city.trim()) {
+  const getWeatherData = useCallback(async () => {
+    const latNum = (lat === null || lat === undefined || lat === '') ? null : Number(lat);
+    const lonNum = (lon === null || lon === undefined || lon === '') ? null : Number(lon);
+    const hasCoords = latNum !== null && lonNum !== null && Number.isFinite(latNum) && Number.isFinite(lonNum);
+    if (!hasCoords && !city.trim()) {
       toast.error('Please enter a city name');
       return;
     }
 
     setLoading(true);
     try {
-      // Get current weather
-      const weatherResponse = await axios.get(`/api/weather/${encodeURIComponent(city)}?units=${units}`);
-      setWeather(weatherResponse.data);
-
-      // Get 5-day forecast
-      const forecastResponse = await axios.get(`/api/weather/forecast/${encodeURIComponent(city)}?units=${units}`);
-      setForecast(forecastResponse.data);
-
-      toast.success(`Weather data loaded for ${city}`);
+      if (hasCoords) {
+        const params = new URLSearchParams({ lat: String(latNum), lon: String(lonNum), units });
+        const currentResp = await axios.get(`/api/weather/by-coords/current?${params.toString()}`);
+        setWeather(currentResp.data);
+        const forecastResp = await axios.get(`/api/weather/by-coords/forecast?${params.toString()}`);
+        setForecast(forecastResp.data);
+        const label = new URLSearchParams(window.location.search).get('label');
+        if (label) {
+          // prefer user-provided label for display if present
+          setCity(label);
+        } else if (currentResp.data?.city) {
+          setCity(currentResp.data.city);
+        }
+        toast.success('Weather data loaded for selected location');
+      } else {
+        // City-based fallback
+        const weatherResponse = await axios.get(`/api/weather/${encodeURIComponent(city)}?units=${units}`);
+        setWeather(weatherResponse.data);
+        const forecastResponse = await axios.get(`/api/weather/forecast/${encodeURIComponent(city)}?units=${units}`);
+        setForecast(forecastResponse.data);
+        toast.success(`Weather data loaded for ${city}`);
+      }
     } catch (error) {
       console.error('Weather API error:', error);
       const errorMessage = error.response?.data?.error || 'Failed to fetch weather data';
@@ -61,7 +80,7 @@ const Weather = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [city, lat, lon, units]);
 
   // Auto-run when URL has ?city= and optional units
   useEffect(() => {
@@ -69,6 +88,8 @@ const Weather = () => {
       const params = new URLSearchParams(window.location.search);
       const cityParam = params.get('city');
       const unitsParam = params.get('units');
+      const latParam = params.get('lat');
+      const lonParam = params.get('lon');
       if (cityParam) {
         setCity(cityParam);
         if (unitsParam === 'metric' || unitsParam === 'imperial') {
@@ -78,10 +99,32 @@ const Weather = () => {
         setTimeout(() => {
           getWeatherData();
         }, 0);
+      } else if (latParam && lonParam) {
+        setLat(Number(latParam));
+        setLon(Number(lonParam));
+        if (unitsParam === 'metric' || unitsParam === 'imperial') {
+          setUnits(unitsParam);
+        }
+        // trigger fetch for coords
+        setTimeout(() => {
+          getWeatherData();
+        }, 0);
       }
     } catch (e) {
       // noop
     }
+  }, [getWeatherData]);
+
+  // Cleanup any created object URLs on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (audioUrlRef.current) {
+          URL.revokeObjectURL(audioUrlRef.current);
+          audioUrlRef.current = null;
+        }
+      } catch (_) {}
+    };
   }, []);
 
   const handleSubmit = (e) => {
@@ -99,6 +142,47 @@ const Weather = () => {
 
   const getTemperatureUnit = () => units === 'metric' ? '°C' : '°F';
   const getSpeedUnit = () => units === 'metric' ? 'm/s' : 'mph';
+
+  const speakText = async (text) => {
+    if (!text) return;
+    try {
+      const resp = await axios.post(
+        '/api/weather/tts',
+        { text, voice: 'alloy', format: 'mp3' },
+        { responseType: 'blob' }
+      );
+      const blob = new Blob([resp.data], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = url;
+      const audio = new Audio(url);
+      await audio.play();
+    } catch (e) {
+      // Backend TTS failed – try browser TTS as a fallback
+      try {
+        if ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          window.speechSynthesis.speak(utterance);
+          toast('Using browser speech as fallback');
+          return;
+        }
+      } catch (_) {
+        // ignore fallback errors
+      }
+      let serverMsg = 'Failed to play voice note';
+      try {
+        if (e?.response?.data) {
+          const errText = await e.response.data.text?.();
+          if (errText) serverMsg = errText;
+        }
+      } catch (_) {}
+      toast.error(serverMsg);
+      console.error('TTS error:', e);
+    }
+  };
 
   return (
     <div className="weather-page">
@@ -158,6 +242,22 @@ const Weather = () => {
             <p className="text-lg opacity-90 mb-6">
               {new Date(weather.timestamp).toLocaleString()}
             </p>
+            {weather.visitability && (
+              <div className={`mb-4 text-sm font-medium ${weather.visitability.is_ok_to_visit ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'} inline-block px-3 py-2 rounded`}>
+                {weather.visitability.note}
+              </div>
+            )}
+            {weather.visitability && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => speakText(weather.visitability.note)}
+                >
+                  Play Note
+                </button>
+              </div>
+            )}
             
             <div className="weather-icon mb-4">
               {(() => {
@@ -167,7 +267,7 @@ const Weather = () => {
             </div>
             
             <div className="weather-temp">
-              {Math.round(weather.current.temperature)}{getTemperatureUnit()}
+              {Number(weather.current.temperature).toFixed(1)}{getTemperatureUnit()}
             </div>
             
             <div className="weather-desc mb-6">
@@ -179,7 +279,7 @@ const Weather = () => {
                 <Thermometer size={20} className="mx-auto mb-1" />
                 <div className="weather-detail-label">Feels Like</div>
                 <div className="weather-detail-value">
-                  {Math.round(weather.current.feels_like)}{getTemperatureUnit()}
+                  {Number(weather.current.feels_like).toFixed(1)}{getTemperatureUnit()}
                 </div>
               </div>
               
@@ -245,6 +345,20 @@ const Weather = () => {
                 <div className="text-xs text-gray-500">
                   Rain: {Math.round(day.summary.max_precipitation_probability)}%
                 </div>
+                {day.summary.visitability && (
+                  <div className={`mt-3 p-2 rounded text-xs ${day.summary.visitability.is_ok_to_visit ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                    {day.summary.visitability.note}
+                  </div>
+                )}
+                {day.summary.visitability && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary mt-2 w-full"
+                    onClick={() => speakText(day.summary.visitability.note)}
+                  >
+                    Play Note
+                  </button>
+                )}
                 
                 {day.summary.recommendations.length > 0 && (
                   <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-800">

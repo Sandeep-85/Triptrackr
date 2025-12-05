@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { MapPin, Globe, Cloud, MessageCircle, Menu, X, DollarSign, Share2, Info, Mail, Utensils } from 'lucide-react';
+import { MapPin, Globe, Cloud, MessageCircle, Menu, X, DollarSign, Share2, Info, Mail, Utensils, Plane } from 'lucide-react';
 
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -28,7 +28,7 @@ const Navbar = () => {
     <nav className="navbar">
       <div className="nav-container">
         <Link to="/" className="nav-logo">
-          <Globe size={24} />
+          <Plane size={24} />
           <span>Triptrackr</span>
         </Link>
 

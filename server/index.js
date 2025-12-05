@@ -38,19 +38,20 @@ connectDB();
 // Security middleware
 app.use(helmet());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
+// Rate limiting (enable in production only to avoid local proxy header issues)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    message: 'Too many requests from this IP, please try again later.'
+  });
+  app.use('/api/', limiter);
+}
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.CORS_ORIGIN?.split(',') || ['https://yourdomain.com']
-    : ['http://localhost:3000'],
+  origin: (origin, cb) => cb(null, true), // allow all for local dev
   credentials: true
 }));
 
@@ -68,6 +69,41 @@ app.use('/api/weather', weatherRoutes);
 app.use('/api/maps', mapsRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/itineraries', itineraryRoutes);
+
+// API index - helpful landing when visiting /api directly
+app.get('/api', (req, res) => {
+  res.json({
+    name: 'TripTrackr API',
+    version: '1.0',
+    status: 'OK',
+    message: 'Welcome to TripTrackr. See available endpoints below.',
+    endpoints: {
+      health: '/api/health',
+      weather: {
+        current: '/api/weather/:city',
+        forecast: '/api/weather/forecast/:city',
+        alerts: '/api/weather/alerts/:city',
+        tts: '/api/weather/tts'
+      },
+      maps: {
+        config: '/api/maps/config',
+        geocode: '/api/maps/geocode/:address',
+        places: '/api/maps/places/:query',
+        place_details: '/api/maps/place/:placeId',
+        directions: '/api/maps/directions',
+        accommodations: '/api/maps/accommodations',
+        nearby: '/api/maps/nearby'
+      },
+      chat: {
+        chat: '/api/chat',
+        recommendations: '/api/chat/recommendations',
+        weather_activities: '/api/chat/weather-activities',
+        history: '/api/chat/history/:userId'
+      },
+      itineraries: '/api/itineraries'
+    }
+  });
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

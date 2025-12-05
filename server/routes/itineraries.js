@@ -178,3 +178,64 @@ router.delete('/:id', async (req, res) => {
 });
 
 module.exports = router;
+
+// Lightweight export endpoints (work with DB or in-memory)
+router.get('/:id/export/pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const getItin = async () => {
+      if (Itinerary.db && Itinerary.db.readyState === 1) {
+        return await Itinerary.findById(id);
+      }
+      return itineraries.get(parseInt(id));
+    };
+    const itin = await getItin();
+    if (!itin) return res.status(404).json({ error: 'Itinerary not found' });
+
+    const title = `Triptrackr Itinerary - ${itin.title || 'Trip'}`;
+    const content = `Itinerary: ${itin.title || ''}\nStart: ${new Date(itin.startDate).toDateString()}\nEnd: ${new Date(itin.endDate).toDateString()}\nDestinations: ${(itin.destinations||[]).map(d=>d.name).join(', ')}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1><pre>${content}</pre><p style="margin-top:24px;color:#555">Simple export preview. Integrate a real PDF generator later.</p></body></html>`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to export PDF', message: e.message });
+  }
+});
+
+router.get('/:id/export/ical', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const getItin = async () => {
+      if (Itinerary.db && Itinerary.db.readyState === 1) {
+        return await Itinerary.findById(id);
+      }
+      return itineraries.get(parseInt(id));
+    };
+    const itin = await getItin();
+    if (!itin) return res.status(404).json({ error: 'Itinerary not found' });
+
+    const dt = (d) => new Date(d).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Triptrackr//Itinerary//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:triptrackr-${id}@local`,
+      `DTSTAMP:${dt(Date.now())}`,
+      `DTSTART:${dt(itin.startDate)}`,
+      `DTEND:${dt(itin.endDate)}`,
+      `SUMMARY:${(itin.title||'Trip').replace(/[,\n]/g,' ')}`,
+      `DESCRIPTION:${(itin.destinations||[]).map(d=>d.name).join(' -> ').replace(/[,\n]/g,' ')}`,
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ];
+    const ics = lines.join('\r\n');
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="itinerary-${id}.ics"`);
+    res.send(ics);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to export iCal', message: e.message });
+  }
+});

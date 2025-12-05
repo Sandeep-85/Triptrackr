@@ -15,6 +15,7 @@ import Export from './pages/Export';
 import About from './pages/About';
 import Contact from './pages/Contact';
 import Accommodation from './pages/Accommodation';
+import Features from './pages/Features';
 import './App.css';
 
 function App() {
@@ -37,6 +38,7 @@ function App() {
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/accommodation" element={<Accommodation />} />
+            <Route path="/features" element={<Features />} />
           </Routes>
         </main>
         <Toaster 

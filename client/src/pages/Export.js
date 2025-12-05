@@ -1,12 +1,24 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 
 const Export = () => {
   const [downloading, setDownloading] = useState(false);
 
+  const navTo = (url) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const downloadPDF = async () => {
     setDownloading(true);
     try {
-      window.alert('PDF export coming soon.');
+      const id = prompt('Enter itinerary ID to export (e.g., 1)');
+      if (!id) return;
+      navTo(`/api/itineraries/${encodeURIComponent(id)}/export/pdf`);
     } finally {
       setDownloading(false);
     }
@@ -15,7 +27,9 @@ const Export = () => {
   const downloadICal = async () => {
     setDownloading(true);
     try {
-      window.alert('iCal export coming soon.');
+      const id = prompt('Enter itinerary ID to export (e.g., 1)');
+      if (!id) return;
+      navTo(`/api/itineraries/${encodeURIComponent(id)}/export/ical`);
     } finally {
       setDownloading(false);
     }
